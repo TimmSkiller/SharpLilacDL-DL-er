@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "tNRo6q7X8jtVLU8wNVVFKW/fJdbo83KreApd4xDyBr4zMSUpixGpzmFAhYJ8SU8D9s2qam+cXTGVBiy4PWcV/A==",
+  "success": true,
+  "projectFilePath": "/home/timmskiller/Schreibtisch/asdf/friiGameGetterFroamDiscoard.csproj",
+  "expectedPackageFiles": [
+    "/home/timmskiller/.nuget/packages/microsoft.netcore.app.host.linux-arm/3.1.6/microsoft.netcore.app.host.linux-arm.3.1.6.nupkg.sha512"
+  ],
+  "logs": []
+}
