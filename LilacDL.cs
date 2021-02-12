@@ -1,172 +1,61 @@
-using System;
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using System.Net;
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using System.Diagnostics;
 
-namespace friiGameGetterFroamDiscoard 
+namespace LilacDL.NET
 {
-    public class LilacDL 
+    public class LilacDL
     {
-        public static List<FilePartModel> ReadLilacDL(string path, out LilacDLModel metadata) 
+        public string FileName { get; set; }
+        public string Uploader { get; set; }
+        public int NumberOfParts { get; set; }
+        public List<FilePart> FileParts { get; set; }
+        public string Size { get; set; }
+
+        public string FullFileMD5 { get; set; }
+
+        public static LilacDL ReadFromFile(string path)
         {
-            if (!File.Exists(path)) 
+            if (!File.Exists(path))
             {
                 throw new FileNotFoundException();
             }
 
             List<string> lines = File.ReadAllLines(path).ToList();
-            List<FilePartModel> fileParts = new List<FilePartModel>();
+            List<FilePart> fileParts = new List<FilePart>();
 
-            string name = lines.Find(c => c.StartsWith("Title:"));
-            string uploader = lines.Find(c => c.StartsWith("Uploader:"));
-            string size = lines.Find(c => c.StartsWith("Size:"));
+            string name = lines.Find(c => c.StartsWith("Title:")).Split(':')[1].Trim(); ;
+            string uploader = lines.Find(c => c.StartsWith("Uploader:")).Split(':')[1].Trim(); ;
+            string size = lines.Find(c => c.StartsWith("Size:")).Split(':')[1].Trim(); ;
             string fullFileMD5 = lines.Find(c => c.StartsWith("MD5:")).Split(':')[1].Trim();
 
-            foreach (string line in lines)
+            Regex regex = new Regex("^\\d+:\\shttp");
+
+            List<string> linkLines = lines.Where(line => regex.IsMatch(line)).ToList();
+
+            foreach (string linkLine in linkLines)
             {
-                if (string.IsNullOrWhiteSpace(line)) 
+                string[] split = linkLine.Split(" ");
+
+                fileParts.Add(new FilePart
                 {
-                    continue;
-                }
-
-                if (char.IsDigit(line.Split(":")[0][0])) 
-                {
-                    string[] temp = line.Split(": ");
-                    int partNum = int.Parse(temp[0]);
-                    string link = temp[1].Split(" * ")[0];
-                    string md5 = temp[1].Split(" * ")[1];
-                    string[] temp1 = link.Split('/');
-                    fileParts.Add(new FilePartModel(partNum, link, md5, temp1[temp1.Length - 1]));
-                }
-            }
-
-            string numberOfParts = $"Number of Parts: {fileParts.Count}";
-
-            metadata = new LilacDLModel(name, uploader, int.Parse(numberOfParts.Split(':')[1].Trim()), size, fullFileMD5);
-
-            if (!File.Exists($"{Environment.CurrentDirectory}/temp_download")) 
-            {
-                Directory.CreateDirectory($"{Environment.CurrentDirectory}/temp_download");
-            }
-
-            return fileParts;
-        }
-
-        public static async Task<Tuple<List<FilePartModel>, List<FilePartModel>>> DownloadPartsParallelAsync(List<FilePartModel> fileParts, IProgress<string> p) 
-        {
-            if (Directory.Exists($"{Environment.CurrentDirectory}/temp_download")) 
-            {
-                Directory.Delete($"{Environment.CurrentDirectory}/temp_download", true);
-            }
-
-            Stopwatch sw = new Stopwatch();
-
-            WebClient wc = new WebClient();
-            List<Task> tasks = new List<Task>();
-            List<FilePartModel> notMatchingHashParts = new List<FilePartModel>();
-            List<FilePartModel> successfulDownloads = new List<FilePartModel>();
-            int progress = 0;
-            
-
-            await Task.Run(() => {
-                sw.Start();
-                Parallel.ForEach<FilePartModel>(fileParts, (filePart) => 
-                {
-                    Downloader.DownloadPart(filePart.Link, $"{Environment.CurrentDirectory}/temp_download/{filePart.FileName}");
-                
-                    string hashOfPart = GetMD5($"{Environment.CurrentDirectory}/temp_download/{filePart.FileName}");
-
-                    if(filePart.MD5.ToUpper() != hashOfPart)
-                    {
-                        notMatchingHashParts.Add(new FilePartModel(filePart.PartNum, filePart.Link, $"{filePart.MD5}|{hashOfPart}", filePart.FileName));
-                        p.Report($"{filePart.FileName} failed to download!");
-                        return;
-                    }
-
-                    progress ++;
-
-                    successfulDownloads.Add(filePart);
-                    p.Report($"{filePart.FileName} was successfully downloaded. ({progress}/{fileParts.Count})");
+                    PartNumber = int.Parse(split[0].Replace(":", "")),
+                    URL = split[1],
+                    MD5 = split[3],
+                    FileName = split[1].Split("/").Last()
                 });
-                sw.Stop();
-            });
-
-            string hours = sw.Elapsed.Hours.ToString();
-            string minutes = sw.Elapsed.Minutes.ToString();
-            string seconds = sw.Elapsed.Seconds.ToString();
-
-            if (int.Parse(hours) < 10) 
-            {
-                hours = $"0{hours}";
-            }
-            
-            if (int.Parse(minutes) < 10) 
-            {
-                minutes = $"0{minutes}";
             }
 
-            if (int.Parse(seconds) < 10) 
+            return new LilacDL
             {
-                seconds = $"0{seconds}";
-            }
-
-            Console.WriteLine($"Download time: {hours}:{minutes}:{seconds}");
-
-            return Tuple.Create(successfulDownloads, notMatchingHashParts);
-        }
-
-        public static void CombineParts(LilacDLModel lilacDL) 
-        {
-            List<string> partPathsInDirectory = Directory.GetFiles($"{Environment.CurrentDirectory}/temp_download").ToList();
-            partPathsInDirectory.Sort();
-            List<string> stuffTM = new List<string>();
-
-            if (partPathsInDirectory.Count != lilacDL.NumberOfParts)
-            {
-                throw new ArgumentException("Amount of parts defined in .lilacDL does not match the amount of files downloaded.");
-            }
-
-            FileStream fs = File.Create($"{Environment.CurrentDirectory}/{lilacDL.FullFileName.Split(':')[1].Trim()}");
-
-            Regex r = new Regex(".\\d+$");
-            string filePartName = r.Replace(Path.GetFileName(partPathsInDirectory[0]), "");
-
-            for (int i = 0; i < partPathsInDirectory.Count; i++) 
-            {
-                string path = partPathsInDirectory[i];
-                byte[] currentPartByteArr = File.ReadAllBytes($"{Environment.CurrentDirectory}/temp_download/{filePartName}.{i}");
-                fs.Write(currentPartByteArr, 0, currentPartByteArr.Length);
-            }
-
-            fs.Close();
-            Directory.Delete($"{Environment.CurrentDirectory}/temp_download", true);
-        }
-
-        public static string Reverse( string s )
-        {
-            char[] charArray = s.ToCharArray();
-            Array.Reverse( charArray );
-            return new string( charArray );
-        }
-
-        public static string GetMD5(string path) 
-        {
-            string hashstring = "";
-            var md5 = MD5.Create();
-
-            
-            byte[] hash = md5.ComputeHash(File.OpenRead(path));
-            foreach (byte b in hash)
-            {
-                hashstring += b.ToString("X2");
-            }
-
-            return hashstring;
+                FileName = name,
+                Uploader = uploader,
+                NumberOfParts = fileParts.Count,
+                Size = size,
+                FullFileMD5 = fullFileMD5,
+                FileParts = fileParts
+            };
         }
     }
 }
